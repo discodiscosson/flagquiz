@@ -82,6 +82,9 @@
     transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   }
   .league-row:hover { border-color: var(--link); }
+  /* Placeholder: continent rows only show progress until filtering moves to Supabase */
+  .league-row.static { cursor: default; }
+  .league-row.static:hover { border-color: var(--border); }
   .league-row.active { background: var(--link); border-color: var(--link); color: #fff; font-weight: 600; }
   .league-row.partial { border-color: var(--link); border-width: 2px; }
   .league-arrow {
@@ -223,10 +226,6 @@
     <div class="sidebar-title">Let's focus on flags from...</div>
     <div class="league-filter-wrap" id="leagueFilterWrap">
       <div class="league-list" id="leagueList"></div>
-      <button type="button" class="reset-btn" id="resetFilterBtn">Reset (show all)</button>
-      <div class="league-filter-overlay" id="leagueFilterOverlay">
-        <span>Filtering not possible in Easy Mode</span>
-      </div>
     </div>
   </div>
 
@@ -247,11 +246,6 @@
     <div class="hint">Guess before the bar runs out · press Enter to submit</div>
 
     <div class="easy-mode-row">
-      <label class="easy-mode-toggle">
-        <input type="checkbox" id="easyModeToggle" />
-        <span class="easy-mode-slider"></span>
-      </label>
-      <span class="easy-mode-label">Easy Mode</span>
       <button type="button" class="free-player-btn" id="freePlayerBtn" title="Reveal this flag and count it as completed">🎟️ Use free flag</button>
     </div>
 
@@ -315,9 +309,6 @@ let lastPlayDay = saved.lastPlayDay;
 let totalGuesses = saved.guesses;
 let correctGuesses = saved.correct;
 
-let selectedRegions = new Set();    // individual regions selected via the continent list
-let expandedContinents = new Set();
-let easyMode = false;
 let pool = [];
 let current = null;
 let timer = null;
@@ -344,11 +335,8 @@ const autocompleteList = document.getElementById('autocompleteList');
 const gameArea = document.getElementById('gameArea');
 const doneBanner = document.getElementById('doneBanner');
 const leagueListEl = document.getElementById('leagueList');
-const easyModeToggle = document.getElementById('easyModeToggle');
-const leagueFilterOverlay = document.getElementById('leagueFilterOverlay');
 const funFactEl = document.getElementById('funFact');
 const statsListEl = document.getElementById('statsList');
-const resetFilterBtn = document.getElementById('resetFilterBtn');
 const rewardRow = document.getElementById('rewardRow');
 const freePlayerBtn = document.getElementById('freePlayerBtn');
 
@@ -439,17 +427,10 @@ function isCorrect(guess, country) {
   return names.some(n => levenshtein(g, n) <= (n.length >= 9 ? 2 : n.length >= 5 ? 1 : 0));
 }
 
-// ---- FILTER (continents and regions) ------------------------------------
-function regionsForContinent(continent) {
-  return Array.from(new Set(COUNTRIES.filter(c => c.continent === continent).map(c => c.region)));
-}
-
+// ---- CONTINENTS (placeholder, progress only) ---------------------------
+// Filtering by continent/region will come from Supabase later.
 function eligibleCountries() {
-  if (easyMode) return COUNTRIES.filter(c => !completed.has(c.id) && c.easy);
-  return COUNTRIES.filter(c =>
-    !completed.has(c.id) &&
-    (selectedRegions.size === 0 || selectedRegions.has(c.region))
-  );
+  return COUNTRIES.filter(c => !completed.has(c.id));
 }
 
 function buildPool() {
@@ -469,74 +450,20 @@ function renderLeagueBoxes() {
   leagueListEl.innerHTML = CONTINENTS.map(cont => {
     const list = COUNTRIES.filter(c => c.continent === cont);
     const done = list.filter(c => completed.has(c.id)).length;
-    const regions = regionsForContinent(cont);
-    const allSelected = regions.length > 0 && regions.every(r => selectedRegions.has(r));
-    const someSelected = regions.some(r => selectedRegions.has(r));
-    const expanded = expandedContinents.has(cont);
     return `
       <div class="league-item">
-        <div class="league-row${allSelected ? ' active' : ''}${!allSelected && someSelected ? ' partial' : ''}" data-league="${escapeHtml(cont)}">
-          <button type="button" class="league-arrow${expanded ? ' open' : ''}" data-league-arrow="${escapeHtml(cont)}">▸</button>
+        <div class="league-row static">
           <span class="league-row-name">${escapeHtml(cont)}</span>
           <span class="league-row-progress">${done} / ${list.length}</span>
-        </div>
-        <div class="league-clubs${expanded ? ' open' : ''}">
-          ${regions.map(r => `
-            <div class="club-box${selectedRegions.has(r) ? ' selected' : ''}" data-club="${escapeHtml(r)}">${escapeHtml(r)}</div>
-          `).join('')}
         </div>
       </div>
   `;
   }).join('');
 }
 
-leagueListEl.addEventListener('click', (e) => {
-  const arrow = e.target.closest('[data-league-arrow]');
-  if (arrow) {
-    const id = arrow.dataset.leagueArrow;
-    if (expandedContinents.has(id)) expandedContinents.delete(id);
-    else expandedContinents.add(id);
-    renderLeagueBoxes();
-    return;
-  }
-
-  const clubBox = e.target.closest('.club-box');
-  if (clubBox) {
-    const id = clubBox.dataset.club;
-    if (selectedRegions.has(id)) selectedRegions.delete(id);
-    else selectedRegions.add(id);
-    renderLeagueBoxes();
-    applyFilterChange();
-    return;
-  }
-
-  const row = e.target.closest('.league-row');
-  if (row) {
-    const regions = regionsForContinent(row.dataset.league);
-    const allSelected = regions.length > 0 && regions.every(r => selectedRegions.has(r));
-    if (allSelected) regions.forEach(r => selectedRegions.delete(r));
-    else regions.forEach(r => selectedRegions.add(r));
-    renderLeagueBoxes();
-    applyFilterChange();
-  }
-});
-
-resetFilterBtn.addEventListener('click', () => {
-  selectedRegions.clear();
-  renderLeagueBoxes();
-  applyFilterChange();
-});
-
-easyModeToggle.addEventListener('change', () => {
-  easyMode = easyModeToggle.checked;
-  leagueFilterOverlay.classList.toggle('visible', easyMode);
-  applyFilterChange();
-});
-
 // ---- FUN FACT + STATS -------------------------------------------------
 function renderFunFact() {
-  const scope = selectedRegions.size === 0 ? COUNTRIES : COUNTRIES.filter(c => selectedRegions.has(c.region));
-  const hard = scope.filter(c => misses[c.id] > 0).sort((a, b) => misses[b.id] - misses[a.id]).slice(0, 3);
+  const hard = COUNTRIES.filter(c => misses[c.id] > 0).sort((a, b) => misses[b.id] - misses[a.id]).slice(0, 3);
   if (!hard.length) { funFactEl.classList.remove('visible'); return; }
   funFactEl.innerHTML = `
     <div class="fun-fact-label">Your hardest flags:</div>
@@ -549,8 +476,7 @@ function renderStats() {
   const rows = [
     ['Total progress', `${completed.size} / ${COUNTRIES.length}`],
     ['Longest streak', `${streakEmoji(currentLongestStreak)} ${currentLongestStreak}`.trim()],
-    ['Accuracy', totalGuesses ? `${Math.round(correctGuesses / totalGuesses * 100)}%` : '—'],
-    ['Easy Mode flags', `${COUNTRIES.filter(c => c.easy && completed.has(c.id)).length} / ${COUNTRIES.filter(c => c.easy).length}`]
+    ['Accuracy', totalGuesses ? `${Math.round(correctGuesses / totalGuesses * 100)}%` : '—']
   ];
   statsListEl.innerHTML = rows.map(([k, v]) => `
     <div class="lb-row"><span class="lb-name"><span class="lb-name-text">${k}</span></span><span class="lb-score">${v}</span></div>
