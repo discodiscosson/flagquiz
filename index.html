@@ -4,21 +4,21 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Flag Quiz – Guess the Country from Its Flag</title>
-<meta name="description" content="Free flag quiz: see a country's flag and guess which country it is in 20 seconds. All 197 countries, filter by continent and region, and build streaks. Get it wrong and the flag goes to the back of the pile.">
+<meta name="description" content="Free flag quiz: see a country's flag and guess which country it is in 20 seconds. All 197 countries. Get it wrong and the flag goes to the back of the pile. Build streaks and climb the leaderboard.">
 <link rel="canonical" href="https://flagquiz.disco.games/">
 <meta name="robots" content="index,follow,max-image-preview:large">
 
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="disco.games">
 <meta property="og:title" content="Flag Quiz – Guess the Country from Its Flag">
-<meta property="og:description" content="See a flag and guess the country in 20 seconds. All 197 countries. Build streaks and complete every continent.">
+<meta property="og:description" content="See a flag and guess the country in 20 seconds. All 197 countries. Build streaks and climb the leaderboard.">
 <meta property="og:url" content="https://flagquiz.disco.games/">
 <meta property="og:image" content="https://www.disco.games/og-image.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Flag Quiz – Guess the Country from Its Flag">
-<meta name="twitter:description" content="See a flag and guess the country in 20 seconds. All 197 countries. Build streaks and complete every continent.">
+<meta name="twitter:description" content="See a flag and guess the country in 20 seconds. All 197 countries. Build streaks and climb the leaderboard.">
 <meta name="twitter:image" content="https://www.disco.games/og-image.png">
 
 <script type="application/ld+json">
@@ -27,7 +27,7 @@
   "@type": "VideoGame",
   "name": "Flag Quiz",
   "url": "https://flagquiz.disco.games/",
-  "description": "Free browser flag quiz. See a country's flag and guess which country it belongs to before the 20-second timer runs out. All 197 countries, filterable by continent and region.",
+  "description": "Free browser flag quiz. See a country's flag and guess which country it belongs to before the 20-second timer runs out. All 197 countries, with streaks and a leaderboard.",
   "genre": ["Trivia", "Geography", "Quiz"],
   "gamePlatform": "Web browser",
   "applicationCategory": "Game",
@@ -40,6 +40,8 @@
   "isPartOf": { "@type": "WebSite", "name": "disco.games", "url": "https://www.disco.games/" }
 }
 </script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
 <style>
   :root {
     --header-bg: #a7c3e0;
@@ -82,9 +84,6 @@
     transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   }
   .league-row:hover { border-color: var(--link); }
-  /* Placeholder: continent rows only show progress until filtering moves to Supabase */
-  .league-row.static { cursor: default; }
-  .league-row.static:hover { border-color: var(--border); }
   .league-row.active { background: var(--link); border-color: var(--link); color: #fff; font-weight: 600; }
   .league-row.partial { border-color: var(--link); border-width: 2px; }
   .league-arrow {
@@ -116,19 +115,51 @@
   .lb-title { font-size: 15px; font-weight: 700; }
   .lb-streak-legend { display: flex; gap: 6px; font-size: 11px; color: #888; }
   .lb-streak-legend span { white-space: nowrap; }
+  .lb-controls { display: flex; flex-direction: column; gap: 6px; }
+  .lb-select {
+    padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px;
+    font-size: 13px; background: #fff; color: var(--text);
+  }
+  .lb-select:disabled { color: #999; background: #f2f2f2; }
   .lb-list { display: flex; flex-direction: column; gap: 4px; }
   .lb-row {
     display: flex; align-items: center; gap: 8px; padding: 6px 8px;
     border-radius: 6px; font-size: 13px; background: #fff; border: 1px solid #eee;
   }
-  .lb-name { flex: 1; display: flex; align-items: center; gap: 5px; overflow: hidden; min-width: 0; }
+  .lb-rank {
+    width: 22px; height: 22px; text-align: center; font-weight: 700; color: #999; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 12px;
+  }
+  .lb-rank-gold { background: #FFD700; color: #5c4500; }
+  .lb-rank-silver { background: #C0C0C0; color: #3a3a3a; }
+  .lb-rank-bronze { background: #CD7F32; color: #fff; }
+  .lb-name {
+    flex: 1; display: flex; align-items: center; gap: 5px; overflow: hidden; min-width: 0;
+  }
   .lb-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lb-streak-emoji { font-size: 14px; flex-shrink: 0; }
   .lb-score { font-weight: 600; color: #555; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .lb-row.lb-you { background: #eef3ff; border-color: var(--link); }
+  .lb-row.lb-you .lb-name, .lb-row.lb-you .lb-score { color: var(--link); font-weight: 700; }
+  .lb-divider { text-align: center; color: #aaa; font-size: 12px; margin: 2px 0; }
 
   @media (min-width: 980px) {
     .layout { flex-direction: row; align-items: flex-start; }
     .sidebar { width: 340px; flex-shrink: 0; }
     .leaderboard-panel { width: 280px; flex-shrink: 0; }
+  }
+
+  .progress-block { margin-bottom: 16px; }
+  .progress-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 13px; color: #555; margin-bottom: 3px;
+  }
+  .progress-row strong { color: var(--text); font-size: 14px; }
+  .progress-track {
+    height: 8px; background: var(--track); border-radius: 4px; overflow: hidden; margin-bottom: 10px;
+  }
+  .progress-fill {
+    height: 100%; background: var(--correct); width: 0%; transition: width 0.4s ease;
   }
 
   .scorebar {
@@ -140,15 +171,32 @@
     background: #f0f2f5; border: 1px solid var(--border); border-radius: 6px;
     padding: 8px 12px; font-size: 13px; color: #444; margin-bottom: 12px;
   }
+  .user-bar.signed-in { background: #eaf6ec; border-color: #b6e0c0; color: #1a5c2e; }
+  .user-bar-actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .auth-btn {
+    padding: 5px 12px; font-size: 12px; font-weight: 600; background: var(--link);
+    color: #fff; border: none; border-radius: 5px; cursor: pointer; white-space: nowrap;
+  }
+  .user-bar.signed-in .auth-btn { background: #6b7280; }
+  .view-profile-btn {
+    padding: 5px 12px; font-size: 12px; font-weight: 600; background: #fff;
+    color: var(--link); border: 1px solid var(--link); border-radius: 5px; cursor: pointer; white-space: nowrap;
+    display: none;
+  }
+  .user-bar.signed-in .view-profile-btn { display: inline-block; }
 
   .timer-track { height: 6px; background: var(--track); border-radius: 4px; overflow: hidden; margin-bottom: 14px; }
   .timer-fill { height: 100%; background: var(--timer); width: 100%; transition: width 0.1s linear, background-color 0.3s; }
 
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; margin-top: 14px; }
   .card-header { background: var(--header-bg); text-align: center; font-weight: 700; font-size: 17px; padding: 10px 8px; border-bottom: 1px solid var(--border); }
-  .flag-frame { padding: 16px; display: flex; justify-content: center; }
-  .flag-frame img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: contain; border: 1px solid #c8ccd1; background: #fff; }
-  .flag-caption { text-align: center; font-size: 13px; color: #555; padding: 0 10px 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  th, td { padding: 8px 10px; text-align: left; }
+  thead th { font-weight: 700; border-bottom: 1px solid #ccc; font-size: 14px; }
+  th.apps, td.apps { text-align: right; }
+  th.apps u { text-decoration-style: dotted; }
+  tbody tr:not(:last-child) td { border-bottom: 1px solid #eee; }
+  td.team { color: var(--link); font-weight: 500; }
 
   .feedback { min-height: 26px; text-align: center; font-weight: 600; margin-top: 12px; font-size: 15px; }
   .feedback.correct { color: var(--correct); }
@@ -176,6 +224,107 @@
   .done-banner h2 { margin-bottom: 8px; }
   .loading-banner { text-align: center; padding: 60px 20px; color: #888; }
 
+  /* ---- PROFILE MODAL ---- */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(32, 33, 34, 0.5);
+    display: none; align-items: center; justify-content: center; z-index: 1000;
+    padding: 20px;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--card); border-radius: 8px; width: 100%; max-width: 420px;
+    max-height: 88vh; overflow-y: auto; position: relative;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+  }
+  .modal-close {
+    position: absolute; top: 10px; right: 12px; background: none; border: none;
+    font-size: 22px; line-height: 1; color: #888; cursor: pointer; padding: 4px; width: auto;
+  }
+  .modal-close:hover { color: #333; }
+  .profile-header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 24px 20px 16px; border-bottom: 1px solid var(--border);
+  }
+  .profile-avatar {
+    width: 48px; height: 48px; border-radius: 50%; background: var(--link); color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .profile-name { font-size: 17px; font-weight: 700; }
+  .profile-email { font-size: 13px; color: #666; }
+  .profile-section { padding: 16px 20px; border-bottom: 1px solid #eee; }
+  .profile-section:last-of-type { border-bottom: none; }
+  .profile-section-title { font-size: 13px; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 10px; }
+  .profile-stat-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 0; font-size: 14px; border-bottom: 1px solid #f2f2f2;
+  }
+  .profile-stat-row:last-child { border-bottom: none; }
+  .profile-stat-row strong { font-variant-numeric: tabular-nums; }
+  .profile-league-list { margin-top: 4px; max-height: 160px; overflow-y: auto; }
+  .profile-league-row {
+    display: flex; justify-content: space-between; font-size: 13px; color: #555;
+    padding: 5px 0;
+  }
+  .profile-league-row strong { color: var(--text); font-variant-numeric: tabular-nums; }
+  .profile-setting-row { display: flex; flex-direction: column; gap: 8px; }
+  .profile-setting-row label { font-size: 13px; color: #555; font-weight: 600; }
+  .profile-setting-row .profile-input-row { display: flex; gap: 8px; }
+  .profile-setting-row input[type="text"] { flex: 1; padding: 8px 10px; font-size: 14px; }
+  .profile-setting-row button { padding: 8px 14px; font-size: 13px; }
+  .profile-save-msg { font-size: 12px; color: var(--correct); margin-top: 6px; min-height: 16px; }
+  .profile-footer { padding: 16px 20px 20px; }
+  .profile-signout-btn {
+    width: 100%; background: #fff; color: var(--wrong); border: 1px solid var(--wrong);
+    font-weight: 600; font-size: 14px; padding: 10px; border-radius: 5px; cursor: pointer;
+  }
+  .profile-signout-btn:hover { background: #fdf0ef; }
+  .profile-delete-link {
+    display: block; margin: 12px auto 0; background: none; border: none; color: #888;
+    font-size: 12px; font-weight: 500; text-decoration: underline; padding: 4px; width: auto; cursor: pointer;
+  }
+  .profile-delete-link:hover { color: var(--wrong); }
+  .profile-delete-confirm {
+    display: none; margin-top: 12px; padding: 12px; border: 1px solid var(--wrong);
+    border-radius: 6px; background: #fdf0ef; font-size: 13px; color: #444;
+  }
+  .profile-delete-confirm.open { display: block; }
+  .profile-delete-confirm p { margin: 0 0 10px; }
+  .profile-delete-confirm label { display: block; font-weight: 600; margin-bottom: 6px; }
+  .profile-delete-confirm input[type="text"] { width: 100%; padding: 8px 10px; font-size: 14px; }
+  .profile-delete-actions { display: flex; gap: 8px; margin-top: 10px; }
+  .profile-delete-cancel {
+    flex: 1; background: #fff; color: #555; border: 1px solid var(--border);
+    padding: 8px; font-size: 13px;
+  }
+  .profile-delete-confirm-btn { flex: 1; background: var(--wrong); padding: 8px; font-size: 13px; }
+
+  .mini-profile-overlay {
+    position: fixed; inset: 0; background: rgba(32,33,34,0.4);
+    display: none; align-items: flex-start; justify-content: flex-end; z-index: 1000; padding: 90px 40px 20px 20px;
+  }
+  .mini-profile-overlay.open { display: flex; }
+  .mini-profile {
+    background: var(--card); border-radius: 8px; width: 100%; max-width: 280px;
+    padding: 16px; position: relative; box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+  }
+  .mini-profile-close {
+    position: absolute; top: 8px; right: 10px; background: none; border: none;
+    font-size: 18px; line-height: 1; color: #888; cursor: pointer; padding: 2px; width: auto;
+  }
+  .mini-profile-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .mini-profile-avatar {
+    width: 36px; height: 36px; border-radius: 50%; background: var(--link); color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; flex-shrink: 0;
+  }
+  .mini-profile-name { font-size: 15px; font-weight: 700; }
+  .mini-profile-leagues-title { font-size: 11px; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 8px; }
+  .mini-profile-league-row { display: flex; justify-content: space-between; font-size: 13px; padding: 5px 0; border-bottom: 1px solid #f2f2f2; }
+  .mini-profile-league-row:last-child { border-bottom: none; }
+  .mini-profile-league-row strong { font-variant-numeric: tabular-nums; }
+  .mini-profile-empty { font-size: 13px; color: #888; }
+  .lb-name-link { cursor: pointer; color: inherit; text-decoration: none; }
+  .lb-name-link:hover { text-decoration: underline; }
   .fun-fact {
     font-size: 12px; color: #555; background: #f0f2f5; border: 1px solid var(--border);
     border-radius: 6px; padding: 7px 10px; margin-bottom: 10px; display: none;
@@ -199,6 +348,7 @@
   .easy-mode-toggle input:checked + .easy-mode-slider { background: var(--link); }
   .easy-mode-toggle input:checked + .easy-mode-slider::before { transform: translateX(16px); }
   .easy-mode-label { font-weight: 600; }
+  .easy-mode-sub { font-weight: 400; color: #888; }
 
   .league-filter-wrap { position: relative; }
   .league-filter-overlay {
@@ -214,11 +364,19 @@
   }
   .free-player-btn.visible { display: inline-block; }
   .free-player-btn:hover { background: #eef3ff; }
+  .turnstile-box { display: flex; justify-content: center; margin-top: 10px; }
   .site-footer { margin-top: 28px; text-align: center; font-size: 12px; color: #888; }
   .site-footer a { color: #666; }
 
+  /* ---- Flag Quiz additions ---- */
+  .league-row.static { cursor: default; }
+  .league-row.static:hover { border-color: var(--border); }
+  .flag-frame { padding: 16px; display: flex; justify-content: center; }
+  .flag-frame img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: contain; border: 1px solid #c8ccd1; background: #fff; }
+  .flag-caption { text-align: center; font-size: 13px; color: #555; padding: 0 10px 12px; }
+  .free-flag-row { display: flex; align-items: center; gap: 8px; margin: 10px 0; min-height: 4px; }
+
 </style>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 <div class="wrap">
@@ -234,7 +392,11 @@
   <div class="main">
 
   <div class="user-bar" id="userBar">
-    <span id="userStatusText">Playing as guest — your progress is saved in this browser</span>
+    <span id="userStatusText">Playing as guest — your progress won't be saved</span>
+    <div class="user-bar-actions">
+      <button type="button" class="view-profile-btn" id="viewProfileBtn">View profile</button>
+      <button type="button" class="auth-btn" id="authBtn">Sign in with Google</button>
+    </div>
   </div>
 
   <div id="loadingBanner" class="loading-banner">Loading flags…</div>
@@ -248,8 +410,9 @@
       <button type="submit">Next</button>
     </form>
     <div class="hint">Guess before the bar runs out · press Enter to submit</div>
+    <div class="turnstile-box" id="turnstileBox"></div>
 
-    <div class="easy-mode-row">
+    <div class="free-flag-row">
       <button type="button" class="free-player-btn" id="freePlayerBtn" title="Reveal this flag and count it as completed">🎟️ Use free flag</button>
     </div>
 
@@ -264,7 +427,7 @@
 
   <div class="done-banner" id="doneBanner" style="display:none;">
     <h2>All done! 🎉</h2>
-    <p>You've identified every flag in the current selection.</p>
+    <p>You've identified every flag in the world.</p>
   </div>
 
   </div>
@@ -278,53 +441,133 @@
     </div>
     <div class="reward-row" id="rewardRow" title="Play at least one guess on 5 days in a row to earn a free flag (max 3)"></div>
     <div class="timer-track"><div class="timer-fill" id="timerFill"></div></div>
-    <div class="lb-title">Your stats</div>
-    <div class="lb-list" id="statsList"></div>
+    <div class="lb-title">Leaderboard</div>
+    <div class="lb-controls">
+      <select id="lbContinentSelect" class="lb-select"></select>
+    </div>
+    <div class="lb-list" id="lbList"></div>
+    <div id="lbYou"></div>
   </div>
 
 </div>
 <div class="site-footer"><a href="https://www.disco.games/">More games at disco.games</a> · <a href="mailto:info@disco.games">Contact</a> · Flags: <a href="https://github.com/lipis/flag-icons" rel="noopener">flag-icons</a> (MIT)</div>
 </div>
 
+<!-- ---- PROFILE MODAL ---- -->
+<div class="modal-overlay" id="profileModalOverlay">
+  <div class="modal" id="profileModal">
+    <button type="button" class="modal-close" id="profileModalClose">&times;</button>
+
+    <div class="profile-header">
+      <div class="profile-avatar" id="profileAvatar">?</div>
+      <div>
+        <div class="profile-name" id="profileName">—</div>
+        <div class="profile-email" id="profileEmail">—</div>
+      </div>
+    </div>
+
+    <div class="profile-section">
+      <div class="profile-section-title">Statistics</div>
+      <div class="profile-stat-row">
+        <span>Total progress</span>
+        <strong id="profileTotalProgress">0 / 0</strong>
+      </div>
+      <div class="profile-stat-row">
+        <span>Longest streak</span>
+        <strong id="profileLongestStreak">0</strong>
+      </div>
+      <div class="profile-stat-row">
+        <span>Leaderboard rank (worldwide)</span>
+        <strong id="profileRank">—</strong>
+      </div>
+      <div class="profile-league-list" id="profileLeagueList"></div>
+    </div>
+
+    <div class="profile-section">
+      <div class="profile-section-title">Settings</div>
+      <div class="profile-setting-row">
+        <label for="profileUsernameInput">Display name (shown on leaderboard)</label>
+        <div class="profile-input-row">
+          <input type="text" id="profileUsernameInput" placeholder="Your name" maxlength="40" />
+          <button type="button" id="profileSaveNameBtn">Save</button>
+        </div>
+        <div class="profile-save-msg" id="profileSaveMsg"></div>
+      </div>
+    </div>
+
+    <div class="profile-footer">
+      <button type="button" class="profile-signout-btn" id="profileSignOutBtn">Sign out</button>
+      <button type="button" class="profile-delete-link" id="profileDeleteBtn">Delete account</button>
+      <div class="profile-delete-confirm" id="profileDeleteConfirm">
+        <p>This permanently deletes your disco.games account, including your progress in all games and your leaderboard entries. It cannot be undone.</p>
+        <label for="profileDeleteInput">Type DELETE to confirm</label>
+        <input type="text" id="profileDeleteInput" autocomplete="off" />
+        <div class="profile-delete-actions">
+          <button type="button" class="profile-delete-cancel" id="profileDeleteCancel">Cancel</button>
+          <button type="button" class="profile-delete-confirm-btn" id="profileDeleteConfirmBtn" disabled>Delete my account</button>
+        </div>
+        <div class="profile-save-msg" id="profileDeleteMsg" style="color: var(--wrong);"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ---- MINI PROFILE POPUP (leaderboard) ---- -->
+<div class="mini-profile-overlay" id="miniProfileOverlay">
+  <div class="mini-profile" id="miniProfile">
+    <button type="button" class="mini-profile-close" id="miniProfileClose">&times;</button>
+    <div class="mini-profile-header">
+      <div class="mini-profile-avatar" id="miniProfileAvatar">?</div>
+      <div class="mini-profile-name" id="miniProfileName">—</div>
+    </div>
+    <div class="mini-profile-leagues" id="miniProfileLeagues"></div>
+  </div>
+</div>
+
 <script>
 // ---- SUPABASE SETUP ---------------------------------------------------
-// Same project as Guess the Career. The anon key is public by design.
+// Same project as Guess the Career, so players share one disco.games account.
 const SUPABASE_URL = 'https://hnsldcynysirhrwahaif.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhuc2xkY3lueXNpcmhyd2FoYWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkyMTk0MjAsImV4cCI6MjEwNDc5NTQyMH0.SZcaNDF9th-CX9R7M6QNF8OOSAQ36yLiHZNAkv6marI';
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// Continent groupings — shown in the left-hand list (like leagues in Guess the Career).
+// Continents — shown in the left-hand list and the leaderboard dropdown (like leagues in Guess the Career).
 const CONTINENTS = ["Europe", "Asia", "Africa", "North America", "South America", "Oceania"];
 
-// Time per round, in seconds.
+// Time per round, in seconds. Keep in sync with c_round_seconds in submit_flag_guess (SQL).
 const ROUND_SECONDS = 20;
 const DAYS_PER_FREE_PLAYER = 5;
-const MAX_FREE_PLAYERS = 3;
+
+// Cloudflare Turnstile (bot protection for guest sessions). The site key is public by design.
+const TURNSTILE_SITE_KEY = '0x4AAAAAAFTRxTJSaZjCXcow';
+const CAPTCHA_MAX_AGE_MS = 240000;
+
+// Where Google sends players back after signing in
+const AUTH_REDIRECT = window.location.origin + window.location.pathname;
 
 // ---- STATE ------------------------------------------------------------
-// Loaded from Supabase: {id, continent}. Country names are NOT sent with the flags;
-// guesses are checked on the server (submit_flag_guess).
+let completed = new Set();
+// Loaded from Supabase: {id, continent}. Country names are NOT sent with the flags.
 let allFlags = [];
 let allNames = []; // [{ name, norm }] for autocomplete only (no ids)
-const svgCache = new Map(); // id -> Promise<data URL>
-
-const STORE_KEY = 'flagquiz:v2';
-let saved = loadSaved();
-let completed = new Set(saved.completed);
-let currentLongestStreak = saved.longestStreak;
-let freePlayers = saved.freePlayers;
-let playDays = saved.playDays;
-let lastPlayDay = saved.lastPlayDay;
-let totalGuesses = saved.guesses;
-let correctGuesses = saved.correct;
-
+const svgCache = new Map();
 let pool = [];
 let current = null;
 let timer = null;
 let streak = 0;
 let locked = false;
-let activeSuggestionIndex = -1;
 let roundToken = 0;
+let roundReady = Promise.resolve();
+let currentUser = null;
+let currentUsername = null;
+let currentCountryCode = null;
+let currentLongestStreak = 0;
+let activeSuggestionIndex = -1;
+let linkConflict = false;
+let isBootstrappingGuest = false;
+let guestBootstrap = null;
+let freePlayers = 0;
+let playDays = 0;
 
 const flagImg = document.getElementById('flagImg');
 const flagCaption = document.getElementById('flagCaption');
@@ -338,27 +581,41 @@ const gameArea = document.getElementById('gameArea');
 const doneBanner = document.getElementById('doneBanner');
 const loadingBanner = document.getElementById('loadingBanner');
 const leagueListEl = document.getElementById('leagueList');
-const statsListEl = document.getElementById('statsList');
+const lbContinentSelect = document.getElementById('lbContinentSelect');
+const lbListEl = document.getElementById('lbList');
+const lbYouEl = document.getElementById('lbYou');
+const userBar = document.getElementById('userBar');
+const userStatusText = document.getElementById('userStatusText');
+const authBtn = document.getElementById('authBtn');
+const viewProfileBtn = document.getElementById('viewProfileBtn');
 const rewardRow = document.getElementById('rewardRow');
 const freePlayerBtn = document.getElementById('freePlayerBtn');
 
-// ---- SAVED PROGRESS (this browser) ------------------------------------
-function loadSaved() {
-  const empty = { completed: [], longestStreak: 0, freePlayers: 0, playDays: 0, lastPlayDay: null, guesses: 0, correct: 0 };
-  try {
-    const raw = localStorage.getItem(STORE_KEY);
-    return raw ? Object.assign(empty, JSON.parse(raw)) : empty;
-  } catch (e) { return empty; }
-}
-function persist() {
-  try {
-    localStorage.setItem(STORE_KEY, JSON.stringify({
-      completed: Array.from(completed), longestStreak: currentLongestStreak,
-      freePlayers, playDays, lastPlayDay, guesses: totalGuesses, correct: correctGuesses
-    }));
-  } catch (e) {}
-}
+const profileModalOverlay = document.getElementById('profileModalOverlay');
+const profileModalClose = document.getElementById('profileModalClose');
+const profileAvatar = document.getElementById('profileAvatar');
+const profileName = document.getElementById('profileName');
+const profileEmail = document.getElementById('profileEmail');
+const profileTotalProgress = document.getElementById('profileTotalProgress');
+const profileRank = document.getElementById('profileRank');
+const profileLeagueList = document.getElementById('profileLeagueList');
+const profileUsernameInput = document.getElementById('profileUsernameInput');
+const profileSaveNameBtn = document.getElementById('profileSaveNameBtn');
+const profileSaveMsg = document.getElementById('profileSaveMsg');
+const profileSignOutBtn = document.getElementById('profileSignOutBtn');
+const profileDeleteBtn = document.getElementById('profileDeleteBtn');
+const profileDeleteConfirm = document.getElementById('profileDeleteConfirm');
+const profileDeleteInput = document.getElementById('profileDeleteInput');
+const profileDeleteCancel = document.getElementById('profileDeleteCancel');
+const profileDeleteConfirmBtn = document.getElementById('profileDeleteConfirmBtn');
+const profileDeleteMsg = document.getElementById('profileDeleteMsg');
+const miniProfileOverlay = document.getElementById('miniProfileOverlay');
+const miniProfileClose = document.getElementById('miniProfileClose');
+const miniProfileAvatar = document.getElementById('miniProfileAvatar');
+const miniProfileName = document.getElementById('miniProfileName');
+const miniProfileLeagues = document.getElementById('miniProfileLeagues');
 
+// ---- SMALL HELPERS ------------------------------------------------------
 function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, ch => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -392,9 +649,6 @@ async function loadFlagsFromDatabase() {
     console.error('Failed to load country names:', e);
     allNames = [];
   }
-  // Drop saved progress for flags that no longer exist
-  const ids = new Set(allFlags.map(f => f.id));
-  completed = new Set([...completed].filter(id => ids.has(id)));
 }
 
 // One flag image at a time; the next one is prefetched while you guess.
@@ -408,34 +662,313 @@ function getFlagUrl(id) {
   return svgCache.get(id);
 }
 
-// ---- DAILY PLAY STREAK + FREE FLAGS -----------------------------------
-function todayKey(offsetMs = 0) {
-  return new Date(Date.now() - offsetMs).toLocaleDateString('sv-SE', { timeZone: 'Europe/Stockholm' }); // YYYY-MM-DD
+// ---- AUTH + COMPLETED-TRACKING (Supabase) -------------------------------
+function updateUserBarUI() {
+  const isGuestSession = !!(currentUser && currentUser.is_anonymous);
+  if (currentUser && !isGuestSession) {
+    const label = currentUsername || currentUser.user_metadata?.full_name || currentUser.email || 'Signed in';
+    const flag = currentCountryCode ? countryCodeToFlag(currentCountryCode) + ' ' : '';
+    userStatusText.textContent = `${flag}Signed in as ${label} — your progress is saved`;
+    authBtn.textContent = 'Sign out';
+    userBar.classList.add('signed-in');
+  } else {
+    userStatusText.textContent = linkConflict
+      ? 'That Google account already has a profile. Sign in with it to continue (progress from this guest session is not merged).'
+      : 'Playing as guest — sign in to keep your progress and join the leaderboard';
+    authBtn.textContent = 'Sign in with Google';
+    userBar.classList.remove('signed-in');
+  }
 }
-function registerPlayDay() {
-  const today = todayKey();
-  if (lastPlayDay === today) return false;
-  playDays = (lastPlayDay === todayKey(86400000)) ? playDays + 1 : 1;
-  lastPlayDay = today;
-  let earned = false;
-  if (playDays % DAYS_PER_FREE_PLAYER === 0 && freePlayers < MAX_FREE_PLAYERS) { freePlayers++; earned = true; }
-  persist();
-  return earned;
+
+// The profiles table is shared with Guess the Career (display name + country).
+async function upsertProfile() {
+  if (!currentUser) { currentUsername = null; currentCountryCode = null; return; }
+  const isGuest = !!currentUser.is_anonymous;
+  const defaultName = isGuest
+    ? 'Guest'
+    : (currentUser.user_metadata?.full_name || currentUser.email || 'Player').slice(0, 40);
+  try {
+    const { data: existing, error: fetchError } = await supabaseClient
+      .from('profiles')
+      .select('username, country_code')
+      .eq('user_id', currentUser.id)
+      .maybeSingle();
+    if (fetchError) throw fetchError;
+
+    const needsRename = !!(existing && existing.username === 'Guest' && !isGuest);
+
+    currentCountryCode = (existing && existing.country_code) ? existing.country_code : null;
+    if (!currentCountryCode && !isGuest) {
+      try {
+        const geoRes = await fetch('https://ipapi.co/json/');
+        const geoData = await geoRes.json();
+        const cc = geoData.country_code;
+        currentCountryCode = (typeof cc === 'string' && /^[A-Za-z]{2}$/.test(cc)) ? cc.toUpperCase() : null;
+      } catch (e) {
+        console.error('Failed to fetch country:', e);
+      }
+    }
+
+    if (existing && existing.username && !needsRename) {
+      currentUsername = existing.username;
+      if (!existing.country_code && currentCountryCode) {
+        await supabaseClient
+          .from('profiles')
+          .update({ country_code: currentCountryCode })
+          .eq('user_id', currentUser.id);
+      }
+      return;
+    }
+
+    await supabaseClient
+      .from('profiles')
+      .upsert({ user_id: currentUser.id, username: defaultName, country_code: currentCountryCode }, { onConflict: 'user_id' });
+    currentUsername = defaultName;
+  } catch (e) {
+    console.error('Failed to save profile:', e);
+    currentUsername = defaultName;
+  }
 }
+
+authBtn.addEventListener('click', async () => {
+  if (currentUser && !currentUser.is_anonymous) {
+    await supabaseClient.auth.signOut();
+  } else if (currentUser && currentUser.is_anonymous && !linkConflict) {
+    // Attach Google to the guest account, so the guest's progress is kept
+    const { error } = await supabaseClient.auth.linkIdentity({ provider: 'google', options: { redirectTo: AUTH_REDIRECT } });
+    if (error) {
+      console.error('linkIdentity failed:', error);
+      userStatusText.textContent = 'Could not connect Google. Try again.';
+    }
+  } else {
+    await supabaseClient.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: AUTH_REDIRECT } });
+  }
+});
+
+// ---- TURNSTILE (bot protection) -------------------------------------
+let turnstileWidgetId = null;
+let turnstileResolve = null;
+let captchaPrefetch = null;
+
+function waitForTurnstile(timeoutMs = 10000) {
+  return new Promise(resolve => {
+    const start = Date.now();
+    (function check() {
+      if (window.turnstile) return resolve(true);
+      if (Date.now() - start > timeoutMs) return resolve(false);
+      setTimeout(check, 100);
+    })();
+  });
+}
+
+async function getCaptchaToken() {
+  const ready = await waitForTurnstile();
+  if (!ready) { console.error('Turnstile did not load'); return null; }
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = (token) => {
+      if (settled) return;
+      settled = true;
+      turnstileResolve = null;
+      resolve(token || null);
+    };
+    turnstileResolve = finish;
+    try {
+      if (turnstileWidgetId === null) {
+        turnstileWidgetId = window.turnstile.render('#turnstileBox', {
+          sitekey: TURNSTILE_SITE_KEY,
+          execution: 'execute',
+          appearance: 'interaction-only',
+          callback: (token) => { if (turnstileResolve) turnstileResolve(token); },
+          'error-callback': () => { if (turnstileResolve) turnstileResolve(null); },
+          'timeout-callback': () => { if (turnstileResolve) turnstileResolve(null); }
+        });
+      } else {
+        window.turnstile.reset(turnstileWidgetId);
+      }
+      window.turnstile.execute(turnstileWidgetId);
+    } catch (e) {
+      console.error('Turnstile failed:', e);
+      finish(null);
+    }
+    setTimeout(() => finish(null), 60000);
+  });
+}
+
+function prefetchCaptcha() {
+  if (currentUser || captchaPrefetch) return;
+  captchaPrefetch = { promise: getCaptchaToken(), at: Date.now() };
+}
+
+async function takeCaptchaToken() {
+  const pre = captchaPrefetch;
+  captchaPrefetch = null;
+  if (pre && Date.now() - pre.at < CAPTCHA_MAX_AGE_MS) {
+    const token = await pre.promise;
+    if (token) return token;
+  }
+  return getCaptchaToken();
+}
+
+// Create an anonymous guest session the first time a guest actually guesses
+async function ensureGuestSession() {
+  if (currentUser) return true;
+  if (guestBootstrap) return guestBootstrap;
+  guestBootstrap = (async () => {
+    isBootstrappingGuest = true;
+    try {
+      const captchaToken = await takeCaptchaToken();
+      const { data, error } = await supabaseClient.auth.signInAnonymously(
+        captchaToken ? { options: { captchaToken } } : undefined
+      );
+      if (error || !data || !data.user) {
+        console.error('Anonymous sign-in failed:', error);
+        return false;
+      }
+      currentUser = data.user;
+      await upsertProfile();
+      updateUserBarUI();
+      await loadCompleted();
+      await loadRewards();
+      return true;
+    } catch (e) {
+      console.error('Anonymous sign-in failed:', e);
+      return false;
+    } finally {
+      isBootstrappingGuest = false;
+      guestBootstrap = null;
+    }
+  })();
+  return guestBootstrap;
+}
+
+function detectLinkConflict() {
+  const raw = (window.location.hash || '').replace(/^#/, '') + '&' + (window.location.search || '').replace(/^\?/, '');
+  const params = new URLSearchParams(raw);
+  const code = params.get('error_code') || '';
+  const description = params.get('error_description') || '';
+  if (/identity_already_exists/i.test(code) || /already (linked|exists)/i.test(description)) {
+    linkConflict = true;
+  }
+  if (params.get('error') || params.get('error_code')) {
+    history.replaceState(null, '', window.location.pathname);
+  }
+}
+
+async function loadCompleted() {
+  if (!currentUser) { completed = new Set(); return; }
+  try {
+    const { data, error } = await supabaseClient
+      .from('flag_completed')
+      .select('flag_id')
+      .eq('user_id', currentUser.id);
+    if (error) throw error;
+    completed = new Set((data || []).map(row => row.flag_id));
+  } catch (e) {
+    console.error('Failed to load completed flags:', e);
+    completed = new Set();
+  }
+}
+
+// ---- DAILY PLAY STREAK + FREE FLAGS ---------------------------------
 function renderRewards() {
   const progress = playDays === 0 ? 0 : (playDays % DAYS_PER_FREE_PLAYER === 0 ? DAYS_PER_FREE_PLAYER : playDays % DAYS_PER_FREE_PLAYER);
   rewardRow.textContent = `📅 ${progress}/${DAYS_PER_FREE_PLAYER} days · 🎟️ ${freePlayers} free flag${freePlayers === 1 ? '' : 's'}`;
-  freePlayerBtn.classList.toggle('visible', freePlayers > 0);
+  freePlayerBtn.classList.toggle('visible', !!currentUser && freePlayers > 0);
 }
 
-freePlayerBtn.addEventListener('click', () => {
-  if (locked || !current || freePlayers < 1) return;
-  freePlayers--;
-  persist();
-  endRound({ status: 'revealed' });
+function applyRewardResult(result) {
+  if (!result) return;
+  if (typeof result.free_players === 'number') freePlayers = result.free_players;
+  if (typeof result.play_days === 'number') playDays = result.play_days;
+  renderRewards();
+}
+
+async function loadRewards() {
+  if (!currentUser) { freePlayers = 0; playDays = 0; currentLongestStreak = 0; renderRewards(); return; }
+  try {
+    const { data, error } = await supabaseClient.rpc('get_my_flag_rewards');
+    if (error) throw error;
+    applyRewardResult(data);
+    if (data && typeof data.longest_streak === 'number') currentLongestStreak = data.longest_streak;
+  } catch (e) {
+    console.error('Failed to load rewards:', e);
+    renderRewards();
+  }
+}
+
+freePlayerBtn.addEventListener('click', async () => {
+  if (locked || !current || !currentUser || freePlayers < 1) return;
+  locked = true;
+  guessInput.disabled = true;
+  clearInterval(timer);
+  renderSuggestions([]);
+  freePlayerBtn.disabled = true;
+  await roundReady;
+
+  let result;
+  try {
+    const { data, error } = await supabaseClient.rpc('use_free_flag', { p_flag_id: current.id });
+    result = (error || !data) ? { status: 'error' } : data;
+    if (error) console.error('use_free_flag failed:', error);
+  } catch (e) {
+    console.error('use_free_flag failed:', e);
+    result = { status: 'error' };
+  }
+  freePlayerBtn.disabled = false;
+
+  if (result.status === 'revealed' || result.status === 'already_completed') {
+    endRound(result);
+  } else {
+    applyRewardResult(result);
+    endRound({ status: 'error' });
+  }
 });
 
-// ---- PILE + CONTINENTS (placeholder, progress only) ----------------------
+// Ask the server whether the guess is correct. The server also saves progress,
+// streaks and rewards for signed-in players and guest sessions.
+async function checkGuess(flagId, guess) {
+  try {
+    const { data, error } = await supabaseClient.rpc('submit_flag_guess', {
+      p_flag_id: flagId,
+      p_guess: guess
+    });
+    if (error || !data) {
+      console.error('submit_flag_guess failed:', error);
+      return { status: 'error' };
+    }
+    return data;
+  } catch (e) {
+    console.error('submit_flag_guess failed:', e);
+    return { status: 'error' };
+  }
+}
+
+async function refreshAfterAuthChange() {
+  await upsertProfile();
+  updateUserBarUI();
+  await loadCompleted();
+  await loadRewards();
+  updateProgressUI();
+  restartGame();
+  await renderLeaderboard();
+}
+
+supabaseClient.auth.onAuthStateChange((event, session) => {
+  const newUser = session ? session.user : null;
+  if (isBootstrappingGuest) { currentUser = newUser; return; }
+  const sameUser = !!(newUser && currentUser && newUser.id === currentUser.id);
+  currentUser = newUser;
+  if (sameUser && event !== 'USER_UPDATED') return;
+  if (!allFlags.length) return; // init() handles the first load
+  refreshAfterAuthChange();
+});
+
+// ---- PILE + CONTINENTS -------------------------------------------------
+function updateProgressUI() {
+  renderLeagueBoxes();
+}
+
 function eligibleFlags() {
   return allFlags.filter(f => !completed.has(f.id));
 }
@@ -444,6 +977,15 @@ function buildPool() {
   pool = shuffle(eligibleFlags());
 }
 
+function restartGame() {
+  clearInterval(timer);
+  streak = 0;
+  streakEl.textContent = streak;
+  buildPool();
+  startRound();
+}
+
+// Placeholder: continents only show progress for now (no filtering)
 function renderLeagueBoxes() {
   leagueListEl.innerHTML = CONTINENTS.map(cont => {
     const list = allFlags.filter(f => f.continent === cont);
@@ -459,29 +1001,236 @@ function renderLeagueBoxes() {
   }).join('');
 }
 
-function renderStats() {
-  const rows = [
-    ['Total progress', `${completed.size} / ${allFlags.length}`],
-    ['Longest streak', `${streakEmoji(currentLongestStreak)} ${currentLongestStreak}`.trim()],
-    ['Accuracy', totalGuesses ? `${Math.round(correctGuesses / totalGuesses * 100)}%` : '—']
-  ];
-  statsListEl.innerHTML = rows.map(([k, v]) => `
-    <div class="lb-row"><span class="lb-name"><span class="lb-name-text">${k}</span></span><span class="lb-score">${v}</span></div>
-  `).join('');
+// ---- LEADERBOARD --------------------------------------------------------
+// The server counts scores and ranks. Guests are not listed.
+async function generateLeaderboard(continent) {
+  const toEntry = (r) => ({
+    userId: r.user_id,
+    name: r.username || 'Player',
+    country: r.country_code || null,
+    score: r.score || 0,
+    longestStreak: r.longest_streak || 0,
+    rank: r.pos
+  });
+  try {
+    const { data, error } = await supabaseClient.rpc('get_flag_leaderboard', {
+      p_continent: continent === 'worldwide' ? null : continent,
+      p_limit: 8
+    });
+    if (error) throw error;
+    return {
+      total: data.total || 0,
+      entries: (data.entries || []).map(toEntry),
+      me: data.me ? toEntry(data.me) : null
+    };
+  } catch (e) {
+    console.error('Failed to load leaderboard:', e);
+    return { total: 0, entries: [], me: null };
+  }
 }
 
-function updateProgressUI() {
-  renderLeagueBoxes();
-  renderStats();
+function populateContinentSelect() {
+  lbContinentSelect.innerHTML = ['<option value="worldwide">Worldwide</option>']
+    .concat(CONTINENTS.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`))
+    .join('');
 }
+
+function lbRowHtml(e, isYou) {
+  const rankClass = e.rank === 1 ? ' lb-rank-gold' : e.rank === 2 ? ' lb-rank-silver' : e.rank === 3 ? ' lb-rank-bronze' : '';
+  return `
+      <div class="lb-row${isYou ? ' lb-you' : ''}">
+        <span class="lb-rank${rankClass}">${e.rank}</span>
+        <span class="lb-name">
+          <a href="#" class="lb-name-link lb-name-text" data-user-id="${escapeHtml(e.userId)}" data-username="${escapeHtml(e.name)}" data-country="${escapeHtml(e.country || '')}">${countryCodeToFlag(e.country)} ${escapeHtml(e.name)}${isYou ? ' (you)' : ''}</a>
+        </span>
+        ${e.longestStreak >= 3 ? `<span class="lb-streak-emoji">${streakEmoji(e.longestStreak)}</span>` : ''}
+        <span class="lb-score">${e.score} / ${e.total}</span>
+      </div>
+    `;
+}
+
+async function renderLeaderboard() {
+  const { total, entries, me } = await generateLeaderboard(lbContinentSelect.value);
+  lbListEl.innerHTML = entries.map(e => lbRowHtml({ ...e, total }, !!(currentUser && e.userId === currentUser.id))).join('');
+
+  const youInTop = currentUser && me && entries.some(e => e.userId === me.userId);
+  if (currentUser && me && !youInTop) {
+    lbYouEl.innerHTML = '<div class="lb-divider">···</div>' + lbRowHtml({ ...me, total }, true);
+  } else {
+    lbYouEl.innerHTML = '';
+  }
+}
+
+lbContinentSelect.addEventListener('change', renderLeaderboard);
+
+async function getUserTopContinents(userId) {
+  const { data, error } = await supabaseClient.rpc('get_flag_user_continents', { p_user_id: userId });
+  if (error) { console.error('Failed to load user progress:', error); return []; }
+  return (data || [])
+    .filter(r => r.done > 0)
+    .map(r => ({ name: r.continent, done: r.done, total: r.total, pct: r.done / r.total }))
+    .sort((a, b) => b.pct - a.pct)
+    .slice(0, 3);
+}
+
+async function openMiniProfile(userId, username, country) {
+  miniProfileAvatar.textContent = (username || '?').charAt(0).toUpperCase();
+  miniProfileName.textContent = `${countryCodeToFlag(country)} ${username}`.trim();
+  miniProfileLeagues.innerHTML = '<div class="mini-profile-empty">Loading…</div>';
+  miniProfileOverlay.classList.add('open');
+
+  const top = await getUserTopContinents(userId);
+  if (top.length === 0) {
+    miniProfileLeagues.innerHTML = '<div class="mini-profile-empty">No progress yet.</div>';
+    return;
+  }
+  miniProfileLeagues.innerHTML =
+    '<div class="mini-profile-leagues-title">Top continents</div>' +
+    top.map(s => `
+      <div class="mini-profile-league-row">
+        <span>${escapeHtml(s.name)}</span>
+        <strong>${Math.round(s.pct * 100)}% (${s.done}/${s.total})</strong>
+      </div>
+    `).join('');
+}
+
+function closeMiniProfile() { miniProfileOverlay.classList.remove('open'); }
+miniProfileClose.addEventListener('click', closeMiniProfile);
+miniProfileOverlay.addEventListener('click', (e) => { if (e.target === miniProfileOverlay) closeMiniProfile(); });
+
+function handleLbNameClick(e) {
+  const link = e.target.closest('.lb-name-link');
+  if (!link) return;
+  e.preventDefault();
+  openMiniProfile(link.dataset.userId, link.dataset.username, link.dataset.country || null);
+}
+lbListEl.addEventListener('click', handleLbNameClick);
+lbYouEl.addEventListener('click', handleLbNameClick);
+
+// ---- PROFILE MODAL ---------------------------------------------------
+function openProfileModal() {
+  if (!currentUser || currentUser.is_anonymous) return;
+  profileModalOverlay.classList.add('open');
+  populateProfileModal();
+}
+
+function closeProfileModal() {
+  profileModalOverlay.classList.remove('open');
+  profileSaveMsg.textContent = '';
+  resetDeleteConfirm();
+}
+
+viewProfileBtn.addEventListener('click', openProfileModal);
+profileModalClose.addEventListener('click', closeProfileModal);
+profileModalOverlay.addEventListener('click', (e) => { if (e.target === profileModalOverlay) closeProfileModal(); });
+
+async function populateProfileModal() {
+  const label = currentUsername || currentUser.user_metadata?.full_name || currentUser.email || 'Player';
+  profileAvatar.textContent = label.charAt(0).toUpperCase();
+  profileName.textContent = `${countryCodeToFlag(currentCountryCode)} ${label}`.trim();
+  profileEmail.textContent = currentUser.email || '';
+  profileUsernameInput.value = label;
+  profileSaveMsg.textContent = '';
+
+  const totalDone = allFlags.filter(f => completed.has(f.id)).length;
+  profileTotalProgress.textContent = `${totalDone} / ${allFlags.length}`;
+  document.getElementById('profileLongestStreak').textContent = currentLongestStreak;
+
+  profileLeagueList.innerHTML = CONTINENTS.map(c => {
+    const list = allFlags.filter(f => f.continent === c);
+    const done = list.filter(f => completed.has(f.id)).length;
+    return `
+      <div class="profile-league-row">
+        <span>${escapeHtml(c)}</span>
+        <strong>${done} / ${list.length}</strong>
+      </div>
+    `;
+  }).join('');
+
+  profileRank.textContent = '…';
+  const { me } = await generateLeaderboard('worldwide');
+  profileRank.textContent = me ? `#${me.rank}` : '—';
+}
+
+profileSaveNameBtn.addEventListener('click', async () => {
+  const newName = profileUsernameInput.value.trim().slice(0, 40);
+  if (!newName) return;
+  profileSaveMsg.textContent = 'Saving…';
+  try {
+    const { error } = await supabaseClient
+      .from('profiles')
+      .update({ username: newName })
+      .eq('user_id', currentUser.id);
+    if (error) throw error;
+    currentUsername = newName;
+    profileName.textContent = newName;
+    profileAvatar.textContent = newName.charAt(0).toUpperCase();
+    updateUserBarUI();
+    await renderLeaderboard();
+    profileSaveMsg.textContent = 'Saved!';
+  } catch (e) {
+    console.error('Failed to update username:', e);
+    profileSaveMsg.textContent = 'Could not save — try again.';
+  }
+});
+
+profileSignOutBtn.addEventListener('click', async () => {
+  closeProfileModal();
+  await supabaseClient.auth.signOut();
+});
+
+// ---- DELETE ACCOUNT ---------------------------------------------------
+function resetDeleteConfirm() {
+  profileDeleteConfirm.classList.remove('open');
+  profileDeleteInput.value = '';
+  profileDeleteConfirmBtn.disabled = true;
+  profileDeleteCancel.disabled = false;
+  profileDeleteMsg.textContent = '';
+}
+
+profileDeleteBtn.addEventListener('click', () => {
+  resetDeleteConfirm();
+  profileDeleteConfirm.classList.add('open');
+  profileDeleteInput.focus();
+});
+
+profileDeleteCancel.addEventListener('click', resetDeleteConfirm);
+
+profileDeleteInput.addEventListener('input', () => {
+  profileDeleteConfirmBtn.disabled = profileDeleteInput.value.trim() !== 'DELETE';
+});
+
+profileDeleteConfirmBtn.addEventListener('click', async () => {
+  if (!currentUser) return;
+  if (profileDeleteInput.value.trim() !== 'DELETE') return;
+
+  profileDeleteConfirmBtn.disabled = true;
+  profileDeleteCancel.disabled = true;
+  profileDeleteMsg.textContent = 'Deleting…';
+
+  // Shared with Guess the Career: deletes the whole disco.games account
+  const { error } = await supabaseClient.rpc('delete_my_account');
+  if (error) {
+    console.error('delete_my_account failed:', error);
+    profileDeleteMsg.textContent = 'Could not delete the account. Try again.';
+    profileDeleteConfirmBtn.disabled = false;
+    profileDeleteCancel.disabled = false;
+    return;
+  }
+
+  closeProfileModal();
+  try {
+    await supabaseClient.auth.signOut({ scope: 'local' });
+  } catch (e) {
+    console.error('Local sign-out failed:', e);
+  }
+});
 
 // ---- AUTOCOMPLETE / AUTOSUGGEST ------------------------------------------
 // Uses a list of names only (no flag ids), so suggestions can't be mapped to flags.
 function getSuggestions(query) {
   const q = normalize(query);
   if (!q) return [];
-  // Every word typed must match the start of some word in the name,
-  // so "south k" finds "South Korea" and "guinea b" finds "Guinea-Bissau".
   const qTokens = q.split(/[\s-]+/).filter(Boolean);
   if (qTokens.length === 0) return [];
   const matches = [];
@@ -516,6 +1265,7 @@ function renderSuggestions(suggestions) {
 
 guessInput.addEventListener('input', () => {
   renderSuggestions(getSuggestions(guessInput.value));
+  if (!currentUser && guessInput.value.trim()) prefetchCaptcha();
 });
 
 autocompleteList.addEventListener('mousedown', (e) => {
@@ -541,7 +1291,6 @@ guessInput.addEventListener('keydown', (e) => {
   } else if (e.key === 'Escape') {
     renderSuggestions([]);
   } else if (e.key === 'Enter' && activeSuggestionIndex >= 0) {
-    // A suggestion is highlighted via arrow keys — fill it in instead of submitting
     e.preventDefault();
     guessInput.value = items[activeSuggestionIndex].textContent;
     renderSuggestions([]);
@@ -564,7 +1313,7 @@ async function startRound() {
   doneBanner.style.display = 'none';
 
   const token = ++roundToken;
-  locked = true;                       // unlocked once the flag is on screen
+  locked = true; // unlocked once the flag is on screen
   clearInterval(timer);
   feedbackEl.textContent = '';
   feedbackEl.className = 'feedback';
@@ -574,7 +1323,7 @@ async function startRound() {
   guessInput.focus();
 
   current = pool.pop();
-  flagCaption.textContent = `${current.continent} · ${pool.length + 1} flag${pool.length === 0 ? '' : 's'} left in the pile`;
+  flagCaption.textContent = `${pool.length + 1} flag${pool.length === 0 ? '' : 's'} left in the pile`;
   updateProgressUI();
   timerFill.style.width = '100%';
   timerFill.style.background = 'var(--timer)';
@@ -593,6 +1342,15 @@ async function startRound() {
   if (token !== roundToken) return;
   if (pool.length) getFlagUrl(pool[pool.length - 1].id).catch(() => {}); // prefetch next
 
+  // Tell the server which flag this player is on now (used for streak and time checks)
+  if (currentUser) {
+    roundReady = supabaseClient
+      .rpc('flag_start_round', { p_flag_id: current.id })
+      .then(({ error }) => { if (error) console.error('flag_start_round failed:', error); });
+  } else {
+    roundReady = Promise.resolve();
+  }
+
   locked = false;
   const start = Date.now();
   timer = setInterval(() => {
@@ -604,7 +1362,7 @@ async function startRound() {
   }, 60);
 }
 
-// result.status: 'correct' | 'wrong' | 'timeout' | 'revealed' | 'error'
+// result.status: 'correct' | 'wrong' | 'timeout' | 'error' | 'guest_failed' | 'already_completed' | 'revealed'
 function endRound(result) {
   clearInterval(timer);
   locked = true;
@@ -614,23 +1372,35 @@ function endRound(result) {
   let delay = 700;
 
   if (status === 'correct') {
-    streak++;
+    streak = (typeof result.streak === 'number') ? result.streak : streak + 1;
     streakEl.textContent = streak;
-    currentLongestStreak = Math.max(currentLongestStreak, streak);
+    currentLongestStreak = Math.max(currentLongestStreak,
+      typeof result.longest_streak === 'number' ? result.longest_streak : streak);
     feedbackEl.textContent = `Correct! It's ${result.display_name}` + (result.earned_free_player ? ' · 🎟️ Free flag earned!' : '');
     feedbackEl.className = 'feedback correct';
+    applyRewardResult(result);
     if (result.earned_free_player) delay = 1500;
     completed.add(current.id);
+    updateProgressUI();
+    renderLeaderboard();
   } else if (status === 'revealed') {
-    // Free flag used: counts as completed, the current streak is kept
-    feedbackEl.textContent = '🎟️ Free flag used';
+    applyRewardResult(result);
+    if (typeof result.streak === 'number') { streak = result.streak; streakEl.textContent = streak; }
+    feedbackEl.textContent = `🎟️ Free flag: it's ${result.display_name}`;
     feedbackEl.className = 'feedback correct';
     completed.add(current.id);
+    updateProgressUI();
+    renderLeaderboard();
     delay = 1500;
-  } else if (status === 'error') {
+  } else if (status === 'already_completed') {
+    completed.add(current.id);
+    updateProgressUI();
+  } else if (status === 'error' || status === 'guest_failed' || status === 'auth_required') {
     streak = 0;
     streakEl.textContent = streak;
-    feedbackEl.textContent = 'Something went wrong — try again.';
+    feedbackEl.textContent = status === 'guest_failed'
+      ? "Couldn't start a guest session. Try again in a moment or sign in with Google."
+      : 'Something went wrong — try again.';
     feedbackEl.className = 'feedback wrong';
     pool.unshift(current);
     delay = 1200;
@@ -640,13 +1410,11 @@ function endRound(result) {
     streakEl.textContent = streak;
     feedbackEl.textContent = 'Incorrect!' + (result.earned_free_player ? ' · 🎟️ Free flag earned!' : '');
     feedbackEl.className = 'feedback wrong';
+    applyRewardResult(result);
     if (result.earned_free_player) delay = 1500;
     // not completed — put it at the back of the pile
     pool.unshift(current);
   }
-  persist();
-  renderRewards();
-  updateProgressUI();
   setTimeout(startRound, delay);
 }
 
@@ -661,28 +1429,18 @@ function skipRound() {
   startRound();
 }
 
-function timeUp() {
-  if (locked) return;
-  totalGuesses++;
-  const earned = registerPlayDay();
-  endRound({ status: 'timeout', earned_free_player: earned });
-}
-
-// Ask the server whether the guess is correct.
-async function checkGuess(flagId, guess) {
-  try {
-    const { data, error } = await supabaseClient.rpc('submit_flag_guess', { p_flag_id: flagId, p_guess: guess });
-    if (error || !data) { console.error('submit_flag_guess failed:', error); return { status: 'error' }; }
-    return data;
-  } catch (e) {
-    console.error('submit_flag_guess failed:', e);
-    return { status: 'error' };
-  }
-}
+function timeUp() { if (!locked) endRound({ status: 'timeout' }); }
 
 function normalize(s) {
   return s.toLowerCase().trim()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function countryCodeToFlag(code) {
+  if (!code || !/^[A-Za-z]{2}$/.test(code)) return '';
+  return code.toUpperCase().replace(/./g, char =>
+    String.fromCodePoint(127397 + char.charCodeAt())
+  );
 }
 
 function streakEmoji(n) {
@@ -702,31 +1460,51 @@ guessForm.addEventListener('submit', async (e) => {
     return;
   }
 
-  // Lock the round while the server checks the answer
   locked = true;
   guessInput.disabled = true;
   clearInterval(timer);
   renderSuggestions([]);
 
-  const result = await checkGuess(current.id, text);
-  if (result.status === 'correct' || result.status === 'wrong') {
-    totalGuesses++;
-    if (result.status === 'correct') correctGuesses++;
-    result.earned_free_player = registerPlayDay();
+  const flag = current;
+
+  if (!currentUser) {
+    // First guess as a guest: create an anonymous session, then register this round on the server
+    const ok = await ensureGuestSession();
+    if (!ok) {
+      endRound({ status: 'guest_failed' });
+      return;
+    }
+    const { error } = await supabaseClient.rpc('flag_start_round', { p_flag_id: flag.id });
+    if (error) console.error('flag_start_round failed:', error);
+  } else {
+    await roundReady;
   }
+
+  const result = await checkGuess(flag.id, text);
   endRound(result);
 });
 
 (async function init() {
+  detectLinkConflict();
+  populateContinentSelect();
   renderRewards();
   await loadFlagsFromDatabase();
-  loadingBanner.style.display = 'none';
+
   if (!allFlags.length) {
     loadingBanner.textContent = 'Could not load the flags. Refresh the page to try again.';
-    loadingBanner.style.display = 'block';
     return;
   }
+  loadingBanner.style.display = 'none';
+
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  currentUser = session ? session.user : null;
+  await upsertProfile();
+  updateUserBarUI();
+  await loadCompleted();
+  await loadRewards();
+
   updateProgressUI();
+  renderLeaderboard();
   buildPool();
   startRound();
 })();
