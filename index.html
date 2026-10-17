@@ -274,7 +274,6 @@
     </div>
     <div class="reward-row" id="rewardRow" title="Play at least one guess on 5 days in a row to earn a free flag (max 3)"></div>
     <div class="timer-track"><div class="timer-fill" id="timerFill"></div></div>
-    <div class="fun-fact" id="funFact"></div>
     <div class="lb-title">Your stats</div>
     <div class="lb-list" id="statsList"></div>
   </div>
@@ -335,7 +334,6 @@ const autocompleteList = document.getElementById('autocompleteList');
 const gameArea = document.getElementById('gameArea');
 const doneBanner = document.getElementById('doneBanner');
 const leagueListEl = document.getElementById('leagueList');
-const funFactEl = document.getElementById('funFact');
 const statsListEl = document.getElementById('statsList');
 const rewardRow = document.getElementById('rewardRow');
 const freePlayerBtn = document.getElementById('freePlayerBtn');
@@ -443,7 +441,6 @@ function applyFilterChange() {
   streakEl.textContent = streak;
   buildPool();
   startRound();
-  renderFunFact();
 }
 
 function renderLeagueBoxes() {
@@ -462,16 +459,6 @@ function renderLeagueBoxes() {
 }
 
 // ---- FUN FACT + STATS -------------------------------------------------
-function renderFunFact() {
-  const hard = COUNTRIES.filter(c => misses[c.id] > 0).sort((a, b) => misses[b.id] - misses[a.id]).slice(0, 3);
-  if (!hard.length) { funFactEl.classList.remove('visible'); return; }
-  funFactEl.innerHTML = `
-    <div class="fun-fact-label">Your hardest flags:</div>
-    <ul class="fun-fact-list">${hard.map(c => `<li><strong>${escapeHtml(c.name)}</strong>, ${misses[c.id]} miss${misses[c.id] === 1 ? '' : 'es'}</li>`).join('')}</ul>
-  `;
-  funFactEl.classList.add('visible');
-}
-
 function renderStats() {
   const rows = [
     ['Total progress', `${completed.size} / ${COUNTRIES.length}`],
@@ -638,7 +625,6 @@ function endRound(result) {
   persist();
   renderRewards();
   updateProgressUI();
-  renderFunFact();
   setTimeout(startRound, delay);
 }
 
@@ -698,7 +684,6 @@ guessForm.addEventListener('submit', (e) => {
   renderLeagueBoxes();
   renderRewards();
   renderStats();
-  renderFunFact();
   buildPool();
   startRound();
 })();
