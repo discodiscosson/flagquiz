@@ -371,6 +371,11 @@
   /* ---- Flag Quiz additions ---- */
   .league-row.static { cursor: default; }
   .league-row.static:hover { border-color: var(--border); }
+  .league-row.soon { opacity: 0.55; }
+  .league-row.soon .league-row-progress { font-weight: 600; }
+  .club-box.static { display: flex; justify-content: space-between; cursor: default; }
+  .club-box.static:hover { background: none; }
+  .club-progress { font-size: 11px; font-weight: 700; opacity: 0.75; }
   .flag-frame { padding: 16px; display: flex; justify-content: center; }
   .flag-frame img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: contain; border: 1px solid #c8ccd1; background: #fff; }
   .flag-caption { text-align: center; font-size: 13px; color: #555; padding: 0 10px 12px; }
@@ -427,7 +432,7 @@
 
   <div class="done-banner" id="doneBanner" style="display:none;">
     <h2>All done! 🎉</h2>
-    <p>You've identified every flag in the world.</p>
+    <p>You've identified every flag in the current selection.</p>
   </div>
 
   </div>
@@ -534,6 +539,20 @@ const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_
 // Continents — shown in the left-hand list and the leaderboard dropdown (like leagues in Guess the Career).
 const CONTINENTS = ["Europe", "Asia", "Africa", "North America", "South America", "Oceania"];
 
+// Flag categories in the left-hand list. Subcategories (e.g. US States) come from the database.
+const CATEGORIES = [
+  { id: 'countries', name: 'Countries' },
+  { id: 'regions', name: 'Regions/Provinces' },
+  { id: 'coat_of_arms', name: 'Coat of Arms' },
+  { id: 'organizations', name: 'Organizations' },
+  { id: 'historical', name: 'Historical Flags' }
+];
+let expandedCategories = new Set();
+
+// Which flags are in the pile: a category, optionally narrowed to one subcategory
+let scope = { category: 'countries', subcategory: null };
+const PLACEHOLDERS = { countries: 'Which country is this?', regions: 'Which region is this?', 'US States': 'Which state is this?' };
+
 // Time per round, in seconds. Keep in sync with c_round_seconds in submit_flag_guess (SQL).
 const ROUND_SECONDS = 20;
 const DAYS_PER_FREE_PLAYER = 5;
@@ -636,19 +655,42 @@ async function loadFlagsFromDatabase() {
   try {
     const { data, error } = await supabaseClient.rpc('get_flag_list');
     if (error) throw error;
-    allFlags = (data || []).map(r => ({ id: r.id, continent: r.continent }));
+    allFlags = (data || []).map(r => ({ id: r.id, category: r.category || 'countries', subcategory: r.subcategory || null, continent: r.continent }));
   } catch (e) {
     console.error('Failed to load flags:', e);
     allFlags = [];
   }
+  await loadNames();
+}
+
+// Autocomplete names for the current selection only (no ids)
+async function loadNames() {
   try {
-    const { data, error } = await supabaseClient.rpc('all_flag_names');
+    const { data, error } = await supabaseClient.rpc('all_flag_names', {
+      p_category: scope.category,
+      p_subcategory: scope.subcategory
+    });
     if (error) throw error;
     allNames = (Array.isArray(data) ? data : []).map(name => ({ name, norm: normalize(name) }));
   } catch (e) {
-    console.error('Failed to load country names:', e);
+    console.error('Failed to load names:', e);
     allNames = [];
   }
+}
+
+function subcategoriesFor(category) {
+  return Array.from(new Set(allFlags.filter(f => f.category === category && f.subcategory).map(f => f.subcategory))).sort();
+}
+
+async function setScope(category, subcategory) {
+  if (scope.category === category && scope.subcategory === subcategory) return;
+  scope = { category, subcategory: subcategory || null };
+  guessInput.placeholder = PLACEHOLDERS[scope.subcategory] || PLACEHOLDERS[scope.category] || 'Which flag is this?';
+  lbContinentSelect.value = scope.subcategory ? 'sub:' + scope.subcategory : 'worldwide';
+  renderLeagueBoxes();
+  await loadNames();
+  restartGame();
+  renderLeaderboard();
 }
 
 // One flag image at a time; the next one is prefetched while you guess.
@@ -970,7 +1012,11 @@ function updateProgressUI() {
 }
 
 function eligibleFlags() {
-  return allFlags.filter(f => !completed.has(f.id));
+  return allFlags.filter(f =>
+    !completed.has(f.id) &&
+    f.category === scope.category &&
+    (!scope.subcategory || f.subcategory === scope.subcategory)
+  );
 }
 
 function buildPool() {
@@ -985,21 +1031,70 @@ function restartGame() {
   startRound();
 }
 
-// Placeholder: continents only show progress for now (no filtering)
+// Categories with progress. Click a category (or a subcategory such as US States) to play it.
+// Countries opens to show progress per continent. Categories without flags show "Coming soon".
 function renderLeagueBoxes() {
-  leagueListEl.innerHTML = CONTINENTS.map(cont => {
-    const list = allFlags.filter(f => f.continent === cont);
+  leagueListEl.innerHTML = CATEGORIES.map(cat => {
+    const list = allFlags.filter(f => f.category === cat.id);
+    if (list.length === 0) {
+      return `
+      <div class="league-item">
+        <div class="league-row static soon">
+          <span class="league-row-name">${escapeHtml(cat.name)}</span>
+          <span class="league-row-progress">Coming soon</span>
+        </div>
+      </div>`;
+    }
     const done = list.filter(f => completed.has(f.id)).length;
+    const expanded = expandedCategories.has(cat.id);
+    const isActive = scope.category === cat.id && !scope.subcategory;
+    const isPartial = scope.category === cat.id && !!scope.subcategory;
+
+    let children;
+    if (cat.id === 'countries') {
+      children = CONTINENTS.map(cont => {
+        const sub = list.filter(f => f.continent === cont);
+        const subDone = sub.filter(f => completed.has(f.id)).length;
+        return `<div class="club-box static"><span>${escapeHtml(cont)}</span><span class="club-progress">${subDone} / ${sub.length}</span></div>`;
+      }).join('');
+    } else {
+      children = subcategoriesFor(cat.id).map(subName => {
+        const sub = list.filter(f => f.subcategory === subName);
+        const subDone = sub.filter(f => completed.has(f.id)).length;
+        const selected = scope.category === cat.id && scope.subcategory === subName;
+        return `<div class="club-box sub-pick${selected ? ' selected' : ''}" data-cat="${cat.id}" data-sub="${escapeHtml(subName)}"><span>${escapeHtml(subName)}</span><span class="club-progress">${subDone} / ${sub.length}</span></div>`;
+      }).join('');
+    }
+
     return `
       <div class="league-item">
-        <div class="league-row static">
-          <span class="league-row-name">${escapeHtml(cont)}</span>
+        <div class="league-row${isActive ? ' active' : ''}${isPartial ? ' partial' : ''}" data-cat="${cat.id}">
+          <button type="button" class="league-arrow${expanded ? ' open' : ''}" data-league-arrow="${cat.id}">▸</button>
+          <span class="league-row-name">${escapeHtml(cat.name)}</span>
           <span class="league-row-progress">${done} / ${list.length}</span>
         </div>
-      </div>
-  `;
+        <div class="league-clubs${expanded ? ' open' : ''}">${children}</div>
+      </div>`;
   }).join('');
 }
+
+leagueListEl.addEventListener('click', (e) => {
+  const arrow = e.target.closest('[data-league-arrow]');
+  if (arrow) {
+    const id = arrow.dataset.leagueArrow;
+    if (expandedCategories.has(id)) expandedCategories.delete(id);
+    else expandedCategories.add(id);
+    renderLeagueBoxes();
+    return;
+  }
+  const subBox = e.target.closest('.sub-pick');
+  if (subBox) {
+    setScope(subBox.dataset.cat, subBox.dataset.sub);
+    return;
+  }
+  const row = e.target.closest('.league-row[data-cat]');
+  if (row) setScope(row.dataset.cat, null);
+});
 
 // ---- LEADERBOARD --------------------------------------------------------
 // The server counts scores and ranks. Guests are not listed.
@@ -1013,9 +1108,11 @@ async function generateLeaderboard(continent) {
     rank: r.pos
   });
   try {
+    const isSub = typeof continent === 'string' && continent.startsWith('sub:');
     const { data, error } = await supabaseClient.rpc('get_flag_leaderboard', {
-      p_continent: continent === 'worldwide' ? null : continent,
-      p_limit: 8
+      p_continent: (continent === 'worldwide' || isSub) ? null : continent,
+      p_limit: 8,
+      p_subcategory: isSub ? continent.slice(4) : null
     });
     if (error) throw error;
     return {
@@ -1030,8 +1127,10 @@ async function generateLeaderboard(continent) {
 }
 
 function populateContinentSelect() {
+  const subs = CATEGORIES.flatMap(cat => subcategoriesFor(cat.id));
   lbContinentSelect.innerHTML = ['<option value="worldwide">Worldwide</option>']
     .concat(CONTINENTS.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`))
+    .concat(subs.map(s => `<option value="sub:${escapeHtml(s)}">${escapeHtml(s)}</option>`))
     .join('');
 }
 
@@ -1085,7 +1184,7 @@ async function openMiniProfile(userId, username, country) {
     return;
   }
   miniProfileLeagues.innerHTML =
-    '<div class="mini-profile-leagues-title">Top continents</div>' +
+    '<div class="mini-profile-leagues-title">Top categories</div>' +
     top.map(s => `
       <div class="mini-profile-league-row">
         <span>${escapeHtml(s.name)}</span>
@@ -1136,8 +1235,10 @@ async function populateProfileModal() {
   profileTotalProgress.textContent = `${totalDone} / ${allFlags.length}`;
   document.getElementById('profileLongestStreak').textContent = currentLongestStreak;
 
-  profileLeagueList.innerHTML = CONTINENTS.map(c => {
-    const list = allFlags.filter(f => f.continent === c);
+  const groups = CONTINENTS.map(c => ({ name: c, list: allFlags.filter(f => f.continent === c) }))
+    .concat(CATEGORIES.flatMap(cat => subcategoriesFor(cat.id))
+      .map(s => ({ name: s, list: allFlags.filter(f => f.subcategory === s) })));
+  profileLeagueList.innerHTML = groups.map(({ name: c, list }) => {
     const done = list.filter(f => completed.has(f.id)).length;
     return `
       <div class="profile-league-row">
@@ -1486,9 +1587,9 @@ guessForm.addEventListener('submit', async (e) => {
 
 (async function init() {
   detectLinkConflict();
-  populateContinentSelect();
   renderRewards();
   await loadFlagsFromDatabase();
+  populateContinentSelect();
 
   if (!allFlags.length) {
     loadingBanner.textContent = 'Could not load the flags. Refresh the page to try again.';
