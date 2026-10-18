@@ -377,6 +377,7 @@
   .club-box.static:hover { background: none; }
   .club-progress { font-size: 11px; font-weight: 700; opacity: 0.75; }
   .club-box.sub-pick { display: flex; justify-content: space-between; }
+  .reset-btn { margin-top: 8px; }
   .flag-frame { padding: 16px; display: flex; justify-content: center; }
   .flag-frame img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: contain; border: 1px solid #c8ccd1; background: #fff; }
   .flag-caption { text-align: center; font-size: 13px; color: #555; padding: 0 10px 12px; }
@@ -392,6 +393,7 @@
     <div class="sidebar-title">Let's focus on flags from...</div>
     <div class="league-filter-wrap" id="leagueFilterWrap">
       <div class="league-list" id="leagueList"></div>
+      <button type="button" class="reset-btn" id="resetFilterBtn">Reset (show all)</button>
     </div>
   </div>
 
@@ -550,8 +552,10 @@ const CATEGORIES = [
 ];
 let expandedCategories = new Set();
 
-// Which flags are in the pile: a category, optionally narrowed to one subcategory
-let scope = { category: 'countries', subcategory: null };
+// Which flags are in the pile: a set of subgroups ("countries|Europe", "regions|US States", ...).
+// An empty set means every flag in the game.
+let selected = new Set(CONTINENTS.map(c => 'countries|' + c));
+const namesCache = new Map(); // "category|subcategory" -> [{ name, norm }]
 const PLACEHOLDERS = { countries: 'Which country is this?', regions: 'Which region is this?', 'US States': 'Which state is this?', 'Canadian Provinces': 'Which province or territory is this?', 'Russian Regions': 'Which region is this?' };
 
 // Time per round, in seconds. Keep in sync with c_round_seconds in submit_flag_guess (SQL).
@@ -661,33 +665,70 @@ async function loadFlagsFromDatabase() {
     console.error('Failed to load flags:', e);
     allFlags = [];
   }
-  await loadNames();
+}
+
+// Each flag belongs to one subgroup: its continent (countries) or its subcategory (regions etc.)
+function flagKey(f) {
+  return f.category + '|' + (f.category === 'countries' ? f.continent : f.subcategory);
+}
+
+function subcategoriesFor(category) {
+  if (category === 'countries') return CONTINENTS.filter(c => allFlags.some(f => f.category === 'countries' && f.continent === c));
+  return Array.from(new Set(allFlags.filter(f => f.category === category && f.subcategory).map(f => f.subcategory))).sort();
 }
 
 // Autocomplete names for the current selection only (no ids)
 async function loadNames() {
-  try {
-    const { data, error } = await supabaseClient.rpc('all_flag_names', {
-      p_category: scope.category,
-      p_subcategory: scope.subcategory
-    });
-    if (error) throw error;
-    allNames = (Array.isArray(data) ? data : []).map(name => ({ name, norm: normalize(name) }));
-  } catch (e) {
-    console.error('Failed to load names:', e);
-    allNames = [];
+  const groups = new Set();
+  const keys = selected.size ? Array.from(selected) : Array.from(new Set(allFlags.map(flagKey)));
+  for (const key of keys) {
+    const [category, sub] = key.split('|');
+    groups.add(category === 'countries' ? 'countries|' : key);
   }
+  const lists = await Promise.all(Array.from(groups).map(async g => {
+    if (namesCache.has(g)) return namesCache.get(g);
+    const [category, sub] = g.split('|');
+    try {
+      const { data, error } = await supabaseClient.rpc('all_flag_names', {
+        p_category: category,
+        p_subcategory: sub || null
+      });
+      if (error) throw error;
+      const list = (Array.isArray(data) ? data : []).map(name => ({ name, norm: normalize(name) }));
+      namesCache.set(g, list);
+      return list;
+    } catch (e) {
+      console.error('Failed to load names:', e);
+      return [];
+    }
+  }));
+  const seen = new Set();
+  allNames = lists.flat().filter(n => !seen.has(n.name) && seen.add(n.name)).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function subcategoriesFor(category) {
-  return Array.from(new Set(allFlags.filter(f => f.category === category && f.subcategory).map(f => f.subcategory))).sort();
+function updatePlaceholder() {
+  const keys = Array.from(selected);
+  let text = 'Which flag is this?';
+  if (keys.length && keys.every(k => k.startsWith('countries|'))) text = PLACEHOLDERS.countries;
+  else if (keys.length === 1) text = PLACEHOLDERS[keys[0].split('|')[1]] || PLACEHOLDERS[keys[0].split('|')[0]] || text;
+  else if (keys.length && keys.every(k => k.startsWith('regions|'))) text = PLACEHOLDERS.regions;
+  guessInput.placeholder = text;
 }
 
-async function setScope(category, subcategory) {
-  if (scope.category === category && scope.subcategory === subcategory) return;
-  scope = { category, subcategory: subcategory || null };
-  guessInput.placeholder = PLACEHOLDERS[scope.subcategory] || PLACEHOLDERS[scope.category] || 'Which flag is this?';
-  lbContinentSelect.value = scope.subcategory ? 'sub:' + scope.subcategory : 'worldwide';
+// Leaderboard follows the selection when it is a single continent or subcategory
+function syncLeaderboardSelect() {
+  const keys = Array.from(selected);
+  let value = 'worldwide';
+  if (keys.length === 1) {
+    const [category, sub] = keys[0].split('|');
+    value = category === 'countries' ? sub : 'sub:' + sub;
+  }
+  if (Array.from(lbContinentSelect.options).some(o => o.value === value)) lbContinentSelect.value = value;
+}
+
+async function applySelection() {
+  updatePlaceholder();
+  syncLeaderboardSelect();
   renderLeagueBoxes();
   await loadNames();
   restartGame();
@@ -1013,11 +1054,7 @@ function updateProgressUI() {
 }
 
 function eligibleFlags() {
-  return allFlags.filter(f =>
-    !completed.has(f.id) &&
-    f.category === scope.category &&
-    (!scope.subcategory || f.subcategory === scope.subcategory)
-  );
+  return allFlags.filter(f => !completed.has(f.id) && (selected.size === 0 || selected.has(flagKey(f))));
 }
 
 function buildPool() {
@@ -1032,8 +1069,8 @@ function restartGame() {
   startRound();
 }
 
-// Categories with progress. Click a category (or a subcategory such as US States) to play it.
-// Countries opens to show progress per continent. Categories without flags show "Coming soon".
+// Categories with progress. Click a subgroup (a continent, US States, ...) to add or remove it,
+// or a category row to select / clear all its subgroups. Categories without flags show "Coming soon".
 function renderLeagueBoxes() {
   leagueListEl.innerHTML = CATEGORIES.map(cat => {
     const list = allFlags.filter(f => f.category === cat.id);
@@ -1048,28 +1085,21 @@ function renderLeagueBoxes() {
     }
     const done = list.filter(f => completed.has(f.id)).length;
     const expanded = expandedCategories.has(cat.id);
-    const isActive = scope.category === cat.id && !scope.subcategory;
-    const isPartial = scope.category === cat.id && !!scope.subcategory;
+    const subs = subcategoriesFor(cat.id);
+    const keys = subs.map(s => cat.id + '|' + s);
+    const allSelected = keys.length > 0 && keys.every(k => selected.has(k));
+    const someSelected = keys.some(k => selected.has(k));
 
-    let children;
-    if (cat.id === 'countries') {
-      children = CONTINENTS.map(cont => {
-        const sub = list.filter(f => f.continent === cont);
-        const subDone = sub.filter(f => completed.has(f.id)).length;
-        return `<div class="club-box static"><span>${escapeHtml(cont)}</span><span class="club-progress">${subDone} / ${sub.length}</span></div>`;
-      }).join('');
-    } else {
-      children = subcategoriesFor(cat.id).map(subName => {
-        const sub = list.filter(f => f.subcategory === subName);
-        const subDone = sub.filter(f => completed.has(f.id)).length;
-        const selected = scope.category === cat.id && scope.subcategory === subName;
-        return `<div class="club-box sub-pick${selected ? ' selected' : ''}" data-cat="${cat.id}" data-sub="${escapeHtml(subName)}"><span>${escapeHtml(subName)}</span><span class="club-progress">${subDone} / ${sub.length}</span></div>`;
-      }).join('');
-    }
+    const children = subs.map(subName => {
+      const key = cat.id + '|' + subName;
+      const sub = list.filter(f => flagKey(f) === key);
+      const subDone = sub.filter(f => completed.has(f.id)).length;
+      return `<div class="club-box sub-pick${selected.has(key) ? ' selected' : ''}" data-key="${escapeHtml(key)}"><span>${escapeHtml(subName)}</span><span class="club-progress">${subDone} / ${sub.length}</span></div>`;
+    }).join('');
 
     return `
       <div class="league-item">
-        <div class="league-row${isActive ? ' active' : ''}${isPartial ? ' partial' : ''}" data-cat="${cat.id}">
+        <div class="league-row${allSelected ? ' active' : ''}${!allSelected && someSelected ? ' partial' : ''}" data-cat="${cat.id}">
           <button type="button" class="league-arrow${expanded ? ' open' : ''}" data-league-arrow="${cat.id}">▸</button>
           <span class="league-row-name">${escapeHtml(cat.name)}</span>
           <span class="league-row-progress">${done} / ${list.length}</span>
@@ -1090,11 +1120,24 @@ leagueListEl.addEventListener('click', (e) => {
   }
   const subBox = e.target.closest('.sub-pick');
   if (subBox) {
-    setScope(subBox.dataset.cat, subBox.dataset.sub);
+    const key = subBox.dataset.key;
+    if (selected.has(key)) selected.delete(key);
+    else selected.add(key);
+    applySelection();
     return;
   }
   const row = e.target.closest('.league-row[data-cat]');
-  if (row) setScope(row.dataset.cat, null);
+  if (row) {
+    const keys = subcategoriesFor(row.dataset.cat).map(s => row.dataset.cat + '|' + s);
+    const allSelected = keys.every(k => selected.has(k));
+    keys.forEach(k => allSelected ? selected.delete(k) : selected.add(k));
+    applySelection();
+  }
+});
+
+document.getElementById('resetFilterBtn').addEventListener('click', () => {
+  selected.clear();
+  applySelection();
 });
 
 // ---- LEADERBOARD --------------------------------------------------------
@@ -1128,7 +1171,7 @@ async function generateLeaderboard(continent) {
 }
 
 function populateContinentSelect() {
-  const subs = CATEGORIES.flatMap(cat => subcategoriesFor(cat.id));
+  const subs = CATEGORIES.filter(cat => cat.id !== 'countries').flatMap(cat => subcategoriesFor(cat.id));
   lbContinentSelect.innerHTML = ['<option value="worldwide">Worldwide</option>']
     .concat(CONTINENTS.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`))
     .concat(subs.map(s => `<option value="sub:${escapeHtml(s)}">${escapeHtml(s)}</option>`))
@@ -1237,7 +1280,7 @@ async function populateProfileModal() {
   document.getElementById('profileLongestStreak').textContent = currentLongestStreak;
 
   const groups = CONTINENTS.map(c => ({ name: c, list: allFlags.filter(f => f.continent === c) }))
-    .concat(CATEGORIES.flatMap(cat => subcategoriesFor(cat.id))
+    .concat(CATEGORIES.filter(cat => cat.id !== 'countries').flatMap(cat => subcategoriesFor(cat.id))
       .map(s => ({ name: s, list: allFlags.filter(f => f.subcategory === s) })));
   profileLeagueList.innerHTML = groups.map(({ name: c, list }) => {
     const done = list.filter(f => completed.has(f.id)).length;
@@ -1591,6 +1634,8 @@ guessForm.addEventListener('submit', async (e) => {
   renderRewards();
   await loadFlagsFromDatabase();
   populateContinentSelect();
+  await loadNames();
+  updatePlaceholder();
 
   if (!allFlags.length) {
     loadingBanner.textContent = 'Could not load the flags. Refresh the page to try again.';
