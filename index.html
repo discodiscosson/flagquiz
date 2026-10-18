@@ -371,11 +371,6 @@
   /* ---- Flag Quiz additions ---- */
   .league-row.static { cursor: default; }
   .league-row.static:hover { border-color: var(--border); }
-  .league-row.soon { opacity: 0.55; }
-  .league-row.soon .league-row-progress { font-weight: 600; }
-  .club-box.static { display: flex; justify-content: space-between; cursor: default; }
-  .club-box.static:hover { background: none; }
-  .club-progress { font-size: 11px; font-weight: 700; opacity: 0.75; }
   .flag-frame { padding: 16px; display: flex; justify-content: center; }
   .flag-frame img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: contain; border: 1px solid #c8ccd1; background: #fff; }
   .flag-caption { text-align: center; font-size: 13px; color: #555; padding: 0 10px 12px; }
@@ -538,16 +533,6 @@ const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_
 
 // Continents — shown in the left-hand list and the leaderboard dropdown (like leagues in Guess the Career).
 const CONTINENTS = ["Europe", "Asia", "Africa", "North America", "South America", "Oceania"];
-
-// Flag categories in the left-hand list. Only Countries has flags so far.
-const CATEGORIES = [
-  { id: 'countries', name: 'Countries' },
-  { id: 'regions', name: 'Regions/Provinces' },
-  { id: 'coat_of_arms', name: 'Coat of Arms' },
-  { id: 'organizations', name: 'Organizations' },
-  { id: 'historical', name: 'Historical Flags' }
-];
-let expandedCategories = new Set();
 
 // Time per round, in seconds. Keep in sync with c_round_seconds in submit_flag_guess (SQL).
 const ROUND_SECONDS = 20;
@@ -1000,47 +985,21 @@ function restartGame() {
   startRound();
 }
 
-// Categories with progress. Countries opens to show progress per continent.
-// Placeholder: no filtering yet, and the other categories have no flags yet.
+// Placeholder: continents only show progress for now (no filtering)
 function renderLeagueBoxes() {
-  leagueListEl.innerHTML = CATEGORIES.map(cat => {
-    if (cat.id !== 'countries') {
-      return `
-      <div class="league-item">
-        <div class="league-row static soon">
-          <span class="league-row-name">${escapeHtml(cat.name)}</span>
-          <span class="league-row-progress">Coming soon</span>
-        </div>
-      </div>`;
-    }
-    const done = allFlags.filter(f => completed.has(f.id)).length;
-    const expanded = expandedCategories.has(cat.id);
+  leagueListEl.innerHTML = CONTINENTS.map(cont => {
+    const list = allFlags.filter(f => f.continent === cont);
+    const done = list.filter(f => completed.has(f.id)).length;
     return `
       <div class="league-item">
         <div class="league-row static">
-          <button type="button" class="league-arrow${expanded ? ' open' : ''}" data-league-arrow="${cat.id}">▸</button>
-          <span class="league-row-name">${escapeHtml(cat.name)}</span>
-          <span class="league-row-progress">${done} / ${allFlags.length}</span>
+          <span class="league-row-name">${escapeHtml(cont)}</span>
+          <span class="league-row-progress">${done} / ${list.length}</span>
         </div>
-        <div class="league-clubs${expanded ? ' open' : ''}">
-          ${CONTINENTS.map(cont => {
-            const list = allFlags.filter(f => f.continent === cont);
-            const contDone = list.filter(f => completed.has(f.id)).length;
-            return `<div class="club-box static"><span>${escapeHtml(cont)}</span><span class="club-progress">${contDone} / ${list.length}</span></div>`;
-          }).join('')}
-        </div>
-      </div>`;
+      </div>
+  `;
   }).join('');
 }
-
-leagueListEl.addEventListener('click', (e) => {
-  const arrow = e.target.closest('[data-league-arrow]');
-  if (!arrow) return;
-  const id = arrow.dataset.leagueArrow;
-  if (expandedCategories.has(id)) expandedCategories.delete(id);
-  else expandedCategories.add(id);
-  renderLeagueBoxes();
-});
 
 // ---- LEADERBOARD --------------------------------------------------------
 // The server counts scores and ranks. Guests are not listed.
